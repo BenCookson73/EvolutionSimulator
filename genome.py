@@ -2,13 +2,15 @@ from dataclasses import dataclass
 import random
 
 class Allele:
-    def __init__(self, value, mutation_value=0.01, mutable=False):
+    def __init__(self, value, mutation_value=0.05, mutable=False):
         self.value = value #value (any value)
         self.mutation_value = mutation_value #chance that it mutates (0~1)
         if type(self.value)==bool:
             self.dominant=dominant
         if type(self.value)==int:
             self.value=float(self.value)
+        if type(self.value)==tuple:
+            self.value=list(self.value)
         self.mutable = mutable
 
     def update(self, value):
@@ -32,8 +34,13 @@ class Allele:
         return value
         
     def __mul__(allele1, allele2):
-        if type(allele1.value) != type(allele2.value): return -1  #if they are different data types
-        if type(allele1.value) == float:
+        if type(allele1.value) != type(allele2.value):
+            return -1
+        elif type(allele1.value) == bool:
+            value = allele1.value or allele2.value
+            if (mut1 + mut2) / 2 > random.random():
+                value = not value
+        elif type(allele1.value) == float:
             value = Allele.combine_allele(allele1.value, allele2.value, allele1.mutation_value, allele2.mutation_value)
         else:
             value = list()
@@ -67,6 +74,8 @@ class Genome:
                  vision_span=90,
                  vision_resolution=10,
                  vision_color=[(0, 0, 0, 0), (255, 255, 255, 255)],
+                 eats_meat = True,
+                 eats_plant = True,
                  ):
         #do not use tuples because everything must be mutable
         self.speed = Allele(speed, mutable=True) #pixels it can travel in 1 frame
@@ -80,6 +89,12 @@ class Genome:
         self.vision_span = Allele(vision_span) #degree of vision
         self.vision_resolution = Allele(vision_resolution) #number of rays to find color
         self.vision_color = Allele(vision_color) #color range that can be seen
+        self.eats_meat = eats_meat #if it can eat meat
+        self.eats_plant = eats_plant #if it can eat meat
+        for i in range(len(self.color.value)):
+            if self.color.value[i]<0: self.color.value[i]=0
+            if self.color.value[i]>255: self.color.value[i]=255
+            
 
     def __add__(genome1, genome2):
         g = Genome()
@@ -88,6 +103,11 @@ class Genome:
         g.color = genome1.color * genome2.color
         g.damage = genome1.damage * genome2.damage
         g.health = genome1.health * genome2.health
+        g.eats_meat = genome1.eats_meat or genome1.eats_meat
+        g.eats_plant = genome1.eats_plant or genome1.eats_plant
+        for i in range(len(g.color.value)):
+            if g.color.value[i]<0: g.color.value[i]=0
+            if g.color.value[i]>255: g.color.value[i]=255
         return g
 
     def __str__(self):
