@@ -103,8 +103,8 @@ class Genome:
         g.color = genome1.color * genome2.color
         g.damage = genome1.damage * genome2.damage
         g.health = genome1.health * genome2.health
-        g.eats_meat = genome1.eats_meat or genome1.eats_meat
-        g.eats_plant = genome1.eats_plant or genome1.eats_plant
+        g.eats_meat = genome1.eats_meat or genome2.eats_meat
+        g.eats_plant = genome1.eats_plant or genome2.eats_plant
         for i in range(len(g.color.value)):
             if g.color.value[i]<0: g.color.value[i]=0
             if g.color.value[i]>255: g.color.value[i]=255
