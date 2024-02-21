@@ -19,9 +19,8 @@ if DEBUG:
     f = open('debug.txt','w')
     sys.stdout = f
     
-WIDTH = 600
-HEIGHT = 400
-DIRECTION_LINE_LEN = 30
+WIDTH = 300
+HEIGHT = 300
 screen = None
 ENERGY_DENSITY = 10 #amount energy goes up per pixel^2 of mass
 ENERGY_HEALTH_GAIN = 0.15 #amount 1 energy increases health by
@@ -29,7 +28,8 @@ MAX_HEALTH_GAIN = 0.3 #percentage of health that can be regained in 1 tick (0~1)
 CREATURE_DENSITY = 0.05
 PLANT_DENSITY = 0.005
 
-
+GOLDEN_AGE = 500000 #age to save brain
+BORING_TICKS = 10000 #num ticks since last event to kill
 
 class Creature(pygame.sprite.Sprite):
     def __init__(self, x, y, genome=None, brain=None):
@@ -79,7 +79,7 @@ class Creature(pygame.sprite.Sprite):
     def can_mate(self) -> bool:
         if self.energy < self.genome.energy.value/100:
             return False
-        if self.age < (self.genome.size.value[0]*self.genome.size.value[1]/10)**2:
+        if self.age < 5+(self.genome.size.value[0]*self.genome.size.value[1]/10)**2:
             return False
         if self.last_reproduction < (self.genome.size.value[0]*self.genome.size.value[1]/20)**1.5*random.triangular(0.6, 1.4, 1):
             return False
@@ -106,10 +106,10 @@ class Creature(pygame.sprite.Sprite):
         self.pos[0] += delta_x
         self.pos[1] += delta_y
         #boundary conditions
-        if self.pos[0] < self.genome.size.value[0]:          self.pos[0] = self.genome.size.value[0]+5           #left
-        if self.pos[0] > WIDTH - self.genome.size.value[0]:  self.pos[0] = WIDTH - self.genome.size.value[0]-5   #right
-        if self.pos[1] < self.genome.size.value[1]:          self.pos[1] = self.genome.size.value[1]+5           #top
-        if self.pos[1] > HEIGHT - self.genome.size.value[1]: self.pos[1] = HEIGHT - self.genome.size.value[1]-5  #bottom
+        if self.pos[0] < self.genome.size.value[0]:          self.pos[0] = self.genome.size.value[0]           #left
+        if self.pos[0] > WIDTH - self.genome.size.value[0]:  self.pos[0] = WIDTH - self.genome.size.value[0]   #right
+        if self.pos[1] < self.genome.size.value[1]:          self.pos[1] = self.genome.size.value[1]           #top
+        if self.pos[1] > HEIGHT - self.genome.size.value[1]: self.pos[1] = HEIGHT - self.genome.size.value[1]  #bottom
 
         self.rect.x = self.pos[0]
         self.rect.y = self.pos[1]
@@ -125,6 +125,8 @@ class Creature(pygame.sprite.Sprite):
         self.last_reproduction += 1
         if self.health <= 0  or self.energy <= 0:
             self.kill()
+        if self.energy==0:
+            self.health -= self.health/200
         
     def main(self):
         self.rotate(random.randint(0, 360))
@@ -142,18 +144,19 @@ class Creature(pygame.sprite.Sprite):
 class Plant(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.size = [random.randrange(3, 10), random.randrange(3, 10)]
+        self.size = [random.randrange(2, 5), random.randrange(2, 5)]
+        self.pos = [random.randrange(0, WIDTH), random.randrange(0, HEIGHT)]
+        
         self.image = pygame.Surface(self.size)
         self.image.fill((0, 255, 0))
         self.rect = self.image.get_rect()
-        self.pos = [random.randrange(0, WIDTH), random.randrange(0, HEIGHT)]
         screen.blit(self.image, self.pos)
         self.eaten = False
 
     def update(self):
+        screen.blit(self.image, self.pos)
         if self.eaten:
             self.kill()
-        screen.blit(self.image, self.pos)
 
 
 
@@ -169,7 +172,25 @@ class Simulation:
         self.plants_container = pygame.sprite.Group()
         self.n_species = 3
         self.species_containers = [None for _ in range(self.n_species)]
-    
+
+    def get_collisions(self, sprite):
+        collisions = []
+        center = sprite.pos
+        if type(sprite)==Creature: size = sprite.genome.size.value
+        elif type(sprite)==Plant: size = sprite.size
+        
+        for s in self.all_container.sprites():
+            if s==sprite: continue
+            s_center = s.pos
+            if type(s)==Creature: s_size = s.genome.size.value
+            elif type(s)==Plant: s_size = s.size
+            if (center[0] < s_center[0] + s_size[0] and
+                center[0] + size[0] > s_center[0] and
+                center[1] < s_center[1] + s_size[1] and
+                center[1] + size[1] > s_center[1]):
+                collisions.append(s)
+        return collisions
+                
     def start(self):
         pygame.init()
         pygame.display.set_icon(pygame.image.load("assets\\icon.png"))
@@ -192,10 +213,10 @@ class Simulation:
                 data = eval(open(f"species_{species}_initial.txt").read())
             else:
                 data = [30, [5, 5], [255, 0, 0], 2.5, 50, 2000, 5, 50, 90, 90, [(0, 0, 0, 0), (0, 0, 0, 0)], True, False]
-            n_create = int(CREATURE_DENSITY/self.n_species/(data[1][0]*data[1][1]*4)*WIDTH*HEIGHT)
+            n_create = int(CREATURE_DENSITY/self.n_species/(data[1][0]*data[1][1]*4)*WIDTH*HEIGHT)+2
             print(f"creating {n_create} of species {species}")
             for _ in range(n_create ):
-                creature = Creature(random.randint(0, WIDTH), random.randint(0, HEIGHT),Genome(speed=data[0], size=data[1], color=data[2], damage=data[3], health=data[4], energy=data[5], reproduction_num=data[6], vision_range=data[7], vision_span=data[8], vision_resolution=data[9], vision_color=data[10], eats_meat=data[11], eats_plant=[12]))
+                creature = Creature(random.randint(0, WIDTH), random.randint(0, HEIGHT),Genome(speed=data[0], size=data[1], color=data[2], damage=data[3], health=data[4], energy=data[5], reproduction_num=data[6], vision_range=data[7], vision_span=data[8], vision_resolution=data[9], vision_color=data[10], eats_meat=data[11], eats_plant=data[12]))
                 if brains:
                     with open(f"{os.getcwd()}\\brains\\species_{species}\\{random.choice(brains)}", "rb") as file:
                         try:
@@ -210,8 +231,8 @@ class Simulation:
             os.rename(f"{os.getcwd()}\\brains\\species_{species}", f"{os.getcwd()}\\brains\\backup\\{start}\\species_{species}")
             os.mkdir(f"{os.getcwd()}\\brains\\species_{species}")
         
-        print(f"creating {int(WIDTH*HEIGHT*(PLANT_DENSITY/25))} plants...")
-        for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/25))): #creates 0.2 density of plants   /25 because avg size is 25
+        print(f"creating {int(WIDTH*HEIGHT*(PLANT_DENSITY/9))} plants...")
+        for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/9))): #creates 0.2 density of plants   /25 because avg size is 25
                 plant = Plant()
                 self.plants_container.add(plant)
                 self.all_container.add(plant)
@@ -232,15 +253,25 @@ class Simulation:
         ##############
         #  main loop #
         ##############
-        while (tick<self.NUM_TICKS or self.NUM_TICKS==0) and time_since_last_event<1000:
-            if DEBUG or tick%50==0: print(f"\n\n############\ntick {tick}\n############\n\n") #prints tick
+        while (tick<self.NUM_TICKS or self.NUM_TICKS==0) and time_since_last_event<BORING_TICKS:
+            if DEBUG or tick:
+                print(f"\n\n############\ntick {tick}") #prints tick
+                print(f"     plants: {len(self.plants_container.sprites())}")
+                for s in range(self.n_species):
+                    print(f"     species [s]: {len(self.species_containers[s].sprites())}")
+                print("############\n\n")
+                
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    return 0
+                    return -1
+
+            
             for sprite in self.all_container.sprites(): #loops through all creatures and processes them
                 if type(sprite)==Creature: #if it is a creature, not plant
+                    sprite.last_reproduction += 1
+                    if sprite.health <= 0: continue
                     sprite.main()
-                    if sprite.age > 500: #if sprite brain "golden" save it
+                    if sprite.age > GOLDEN_AGE: #if sprite brain "golden" save it
                         for species in range(self.n_species):
                             if self.species_containers[species] in sprite.groups():
                                 if not os.path.isfile(f"{os.getcwd()}/brains/species_{species}/{sprite.ID}.brain"):
@@ -248,63 +279,49 @@ class Simulation:
                                     with open(f"{os.getcwd()}/brains/species_{species}/{sprite.ID}.brain", "wb") as file:
                                         pickle.dump(sprite.brain, file)
                                         pickle.dump(sprite.genome, file)
-                    sprite.last_reproduction += 1
-                collisions = pygame.sprite.spritecollide(sprite, self.all_container, False)
-                if len(collisions)>1:
-                    for i in range(len(collisions)-1):
-                        for j in range(i+1, len(collisions)):
-                            if len(collisions[i].groups())==2 and len(collisions[j].groups())==2: #error check incase not in 2 groups
-                                if collisions[i].groups()==collisions[j].groups() and self.plants_container not in collisions[i].groups(): #if same-species collision
-                                    if collisions[i].can_mate() and collisions[j].can_mate() and collisions[i]!=collisions[j]: #if not plants and they can all mate and not same creature
-                                        num_produced = (collisions[i].genome.reproduction_num.value+collisions[i].genome.reproduction_num.value)/2 #number of offspring to make
-                                        for _ in range(int(random.triangular(1, num_produced, int(num_produced/2)))): #loops creating offspring
-                                            creature = Creature(collisions[i].pos[0], collisions[i].pos[1], collisions[i].genome+collisions[j].genome)
-                                            creature.brain = Brain.combine(collisions[i].brain, collisions[j].brain, creature.genome.vision_resolution.value, creature.genome.speed.value)
-                                            collisions[i].groups()[1].add(creature)
-                                        collisions[i].last_reproduction = 0
-                                        collisions[j].last_reproduction = 0
-                                        collisions[i].energy -= collisions[i].genome.energy.value/100
-                                        collisions[j].energy -= collisions[j].genome.energy.value/100
-                                else: #if different-species collision
-                                    if type(collisions[i])!=Plant or type(collisions[j])!=Plant: print(type(collisions[i]), type(collisions[j]))
-                                    if type(collisions[i])==Plant and type(collisions[j])!=Plant: #plant collision
-                                        print("plant collision")
-                                        if collisions[j].genome.eats_plant:
-                                            collisions[j].eat(collisions[i].size[0]*collisions[i].size[1]*ENERGY_DENSITY)
-                                            collisions[i].eaten = True
-                                            print("plant eaten")
-                                    elif type(collisions[j])==Plant and type(collisions[i])!=Plant: #plant collision
-                                        print("plant collision")
-                                        if collisions[i].genome.eats_plant:
-                                            collisions[i].eat(collisions[j].size[0]*collisions[j].size[1]*ENERGY_DENSITY)
-                                            collisions[j].eaten = True
-                                            print("plant eaten")
-                                    elif type(collisions[i])==Creature and type(collisions[j])==Creature:
-                                        print("non-plant collision")
-                                        time_since_last_event = 0
-                                        collisions[i].health -= collisions[j].genome.size.value[0]*collisions[j].genome.size.value[1]*collisions[j].genome.damage.value
-                                        collisions[i].damaged = 0
-                                        collisions[j].health -= collisions[i].genome.size.value[0]*collisions[i].genome.size.value[1]*collisions[i].genome.damage.value
-                                        collisions[j].damaged = 0
-                                        if collisions[i].health <= 0 and collisions[j].health > 0: #if creature[i] dead and creature[j] not
-                                            if collisions[j].genome.eats_meat:
-                                                collisions[j].eat(collisions[i].genome.size.value[0]*collisions[i].genome.size.value[1]*ENERGY_DENSITY)
-                                        elif collisions[j].health <= 0 and collisions[i].health > 0: #if creature[j] dead and creature[i] not
-                                            if collisions[i].genome.eats_meat:
-                                                collisions[i].eat(collisions[j].genome.size.value[0]*collisions[j].genome.size.value[1]*ENERGY_DENSITY)
-
-
-        
+                    #collision detection
+                    collisions = self.get_collisions(sprite)
+                    print(f"{len(collisions)}")
+                    for collision in collisions:
+                        if type(collision) == Plant: #sprite always creature so creature-plant collision
+                            if sprite.genome.eats_plant:
+                                sprite.eat(collision.size[0]*collision.size[1]*ENERGY_DENSITY)
+                                collision.eaten = True
+                        elif type(collision) == Creature: #creature-creature collision
+                            if sprite.groups() == collision.groups(): #same-species collision
+                                num_produce = (sprite.genome.reproduction_num.value+collision.genome.reproduction_num.value)/2 #number of offspring to make
+                                for _ in range(int(random.triangular(1, num_produce, int(num_produce/2)+1))): #loops creating offspring
+                                    creature = Creature(sprite.pos[0], sprite.pos[1], sprite.genome+collision.genome)
+                                    creature.brain = Brain.combine(sprite.brain, sprite.brain, creature.genome.vision_resolution.value, creature.genome.speed.value)
+                                    for g in sprite.groups():
+                                        g.add(creature)
+                                sprite.last_reproduction = 0
+                                collision.last_reproduction = 0
+                                sprite.energy -= sprite.genome.energy.value/100
+                                collision.energy -= collision.genome.energy.value/100
+                            else: #different-species collision
+                                time_since_last_event = 0
+                                sprite.health -= collision.genome.size.value[0]*collision.genome.size.value[1]*collision.genome.damage.value
+                                collision.health -= sprite.genome.size.value[0]*sprite.genome.size.value[1]*sprite.genome.damage.value
+                                sprite.damaged = 0
+                                collision.damaged = 0
+                                if collision.health <= 0 and sprite.health > 0: #if collision dead and sprite not
+                                    if sprite.genome.eats_meat:
+                                        sprite.eat(collision.genome.size.value[0]*collision.genome.size.value[1]*ENERGY_DENSITY)
+                                elif sprite.health <= 0 and collision.health > 0: #if sprite dead and sprite not
+                                    if collision.genome.eats_meat:
+                                        collision.eat(sprite.genome.size.value[0]*sprite.genome.size.value[1]*ENERGY_DENSITY)
+                        
+                
             screen.fill(self.BG)
             self.all_container.update()
             pygame.display.flip()
             tick+=1
             time_since_last_event+=1
-            for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/25)/40)): #creates 0.2 density of plants   *25 because avg size is 25
+            for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/9)/10)): #creates 0.2 density of plants   *25 because avg size is 25
                 plant = Plant()
                 self.plants_container.add(plant)
                 self.all_container.add(plant)
-
             clock.tick(30*self.SPEED)
 
 
@@ -318,7 +335,9 @@ if __name__ == "__main__":
         while True:
             print(f"\n\n###############\n###############\n  iteration {i}\n###############\n###############\n\n\n")
             simulation = Simulation()
-            simulation.start()
+            if simulation.start()==-1:
+                pygame.quit()
+                sys.exit(0)
             i+=1
     except KeyboardInterrupt:
         pygame.quit()
