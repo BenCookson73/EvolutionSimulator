@@ -1,350 +1,195 @@
+from dataclasses import dataclass
+import random, math
 
-import pygame
-import sys, math, random, string, time, os, pickle
-from pygame.locals import (
-    K_UP,
-    K_DOWN,
-    K_LEFT,
-    K_RIGHT,
-    K_ESCAPE,
-    KEYDOWN,
-    QUIT,
-
-)
-from genome import *
-from brain import *
-
-DEBUG = False
-if DEBUG:
-    f = open('debug.txt','w')
-    sys.stdout = f
-    
-WIDTH = 1000
-HEIGHT = 600
-screen = None
-ENERGY_DENSITY = 10 #amount energy goes up per pixel^2 of mass
-ENERGY_HEALTH_GAIN = 0.15 #amount 1 energy increases health by
-MAX_HEALTH_GAIN = 0.3 #percentage of health that can be regained in 1 tick (0~1)
-CREATURE_DENSITY = 0.05
-PLANT_DENSITY = 0.005
-REPRPODUCTION_ENERGY = 0.1 #percentage of energy used to reproduce
-
-GOLDEN_AGE = 0.8 #age out of max age to save brain
-BORING_TICKS = 500 #num ticks since last event to kill
-
-class Creature(pygame.sprite.Sprite):
-    def __init__(self, x, y, genome=None, brain=None):
-        """"""
-        self.ID = ''.join([random.choice(string.ascii_uppercase) for _ in range(5)])
-        super().__init__()
-        if genome: self.genome = genome
-        else: self.genome = Genome()
-        self.brain = brain
-        self.pos = [x, y]
-        self.angle = 0
-        self.image = pygame.Surface(self.genome.size.value)
-        self.image.fill(self.genome.color.value)
-        self.rect = self.image.get_rect()
-        screen.blit(self.image, self.pos)
-
-        self.age = 0 #age in ticks
-        self.max_age = math.log(self.genome.size.value[0] * self.genome.size.value[1], 1.3) * 40
-        self.last_reproduction = 0 #number of ticks since last reproduction
-        self.health = self.genome.health.value #current health (starts at max)
-        
-        self.energy = self.genome.energy.value/10 #current energy (starts at max)
-
-        self.damaged = 0 #number of ticks since last injured
-
-    def make_brain(self):
-        self.brain = Brain(self.genome.vision_resolution.value, self.genome.speed.value)
-        self.brain.randomise()
-
-    def get_vision_array(self) -> list:
-        vision_array = [[(0, 0, 0, 0), 0] for _ in range(int(self.genome.vision_resolution.value))]
-        for i in range(int(self.genome.vision_resolution.value)):
-            angle = self.angle + self.genome.vision_span.value / self.genome.vision_resolution.value * i
-            for pixel in range(int(max(self.genome.size.value)), int(max(self.genome.size.value)+int(self.genome.vision_range.value))): #max(self.genome.size.value) to avoid seeing self
-                coords = (int(self.pos[0]+math.cos(angle)*pixel), int(self.pos[1]+math.sin(angle)*pixel))
-                if coords[0] < 0: break       #left
-                if coords[0] >= WIDTH: break   #right
-                if coords[1] < 0: break       #top
-                if coords[1] >= HEIGHT: break  #bottom
-                color = screen.get_at(coords)
-                if color[:3] != (0, 0, 0):
-                    for j in range(4):
-                        if color[j]<self.genome.vision_color.value[0][j]: color[j] = 0
-                        elif color[j]>self.genome.vision_color.value[1][j]: color[j] = 255
-                    vision_array[i] = [color, pixel] #adds the color and distance        return vision_array
-                
-    
-    def can_mate(self) -> bool:
-        if self.energy < self.genome.energy.value*REPRPODUCTION_ENERGY:
-            return False
-        if self.age < math.log((self.genome.size.value[0]*self.genome.size.value[1]), 1.1)**1.5:
-            return False
-        if self.last_reproduction < math.sqrt(self.genome.size.value[0]*self.genome.size.value[1])**1.5:
-            return False
-        return True
-
-    def rotate(self, angle):
-        self.angle = (self.angle+angle)%360
-        if self.angle:
-            pass
-
-    def move(self, distance):
-        if self.energy > distance*10: #every 10 pixels moved reduces enrgy by 1
-            self.energy -= distance * 0.1
-        else:
-            distance /= 5
-            self.energy /= 2
-        delta_x = math.sin(self.angle)*distance
-        delta_y = math.sqrt(distance**2 - delta_x**2)
-        if self.angle>90 and self.angle<270:
-            delta_x = -delta_x
-        if self.angle>180 and self.angle<360:
-            delta_y = -delta_y
-
-        self.pos[0] += delta_x
-        self.pos[1] += delta_y
-        #boundary conditions
-        if self.pos[0] < self.genome.size.value[0]:          self.pos[0] = self.genome.size.value[0]           #left
-        if self.pos[0] > WIDTH - self.genome.size.value[0]:  self.pos[0] = WIDTH - self.genome.size.value[0]   #right
-        if self.pos[1] < self.genome.size.value[1]:          self.pos[1] = self.genome.size.value[1]           #top
-        if self.pos[1] > HEIGHT - self.genome.size.value[1]: self.pos[1] = HEIGHT - self.genome.size.value[1]  #bottom
-
-        self.rect.x = self.pos[0]
-        self.rect.y = self.pos[1]
-
-    def eat(self, value: float):
-        self.energy += value #add amount of energy
-        if self.energy > self.genome.energy.value: self.energy = self.genome.energy.value #if over max energy then set to cap
-        
-    def update(self):
-        screen.blit(self.image, self.pos)
-        self.age += 1
-        self.damaged += 1
-        self.last_reproduction += 1
-        if self.health <= 0  or self.energy <= 0 or self.age >= self.max_age:
-            self.kill()
-        if self.energy <= self.genome.energy.value/10:
-            self.health -= self.genome.health.value/500
-        
-    def main(self):
-        self.rotate(random.randint(0, 360))
-        self.move(random.uniform(-self.genome.speed.value, self.genome.speed.value))
-        if self.energy >= self.genome.energy.value/10:
-            if self.health != self.genome.health.value and self.damaged>math.sqrt(self.genome.size.value[0]*self.genome.size.value[1]/5)**1.5: #if not on full health and not damaged in the last x ticks
-                if self.health+self.energy*ENERGY_HEALTH_GAIN*MAX_HEALTH_GAIN > self.genome.health.value: #if have enough energy to restore fully
-                    self.energy -= self.energy*((self.genome.health.value-self.health)/self.genome.health.value)*ENERGY_HEALTH_GAIN
-                    self.health = self.genome.health.value
-                else:
-                    self.health += self.energy*ENERGY_HEALTH_GAIN*MAX_HEALTH_GAIN
-                    self.energy -= (self.energy*MAX_HEALTH_GAIN)*ENERGY_HEALTH_GAIN
-           
-       
-
-class Plant(pygame.sprite.Sprite):
-    def __init__(self):
-        super().__init__()
-        self.size = [random.randrange(2, 5), random.randrange(2, 5)]
-        self.pos = [random.randrange(0, WIDTH), random.randrange(0, HEIGHT)]
-        
-        self.image = pygame.Surface(self.size)
-        self.image.fill((0, 255, 0))
-        self.rect = self.image.get_rect()
-        screen.blit(self.image, self.pos)
-        self.eaten = False
-
-    def update(self):
-        screen.blit(self.image, self.pos)
-        if self.eaten:
-            self.kill()
-
-
-
-
-class Simulation:
-    def __init__(self):
-        self.BG = (0, 0, 0)
-        self.NUM_TICKS = 0
-        self.SPECIES_CAP = 400
-        self.SPEED = 0
-       
-        self.all_container = pygame.sprite.Group()
-        self.plants_container = pygame.sprite.Group()
-        self.n_species = 3
-        self.species_containers = [None for _ in range(self.n_species)]
-
-    def get_collisions(self, sprite):
-        collisions = []
-        center = sprite.pos
-        if type(sprite)==Creature: size = sprite.genome.size.value
-        elif type(sprite)==Plant: size = sprite.size
-        
-        for s in self.all_container.sprites():
-            if s==sprite: continue
-            s_center = s.pos
-            if type(s)==Creature: s_size = s.genome.size.value
-            elif type(s)==Plant: s_size = s.size
-            if (center[0] < s_center[0] + s_size[0] and
-                center[0] + size[0] > s_center[0] and
-                center[1] < s_center[1] + s_size[1] and
-                center[1] + size[1] > s_center[1]):
-                collisions.append(s)
-        return collisions
-                
-    def start(self):
-        pygame.init()
-        pygame.display.set_icon(pygame.image.load("assets\\icon.png"))
-        pygame.display.set_caption("Ben's evolution simulator")
-        global screen
-        screen = pygame.display.set_mode([WIDTH, HEIGHT])
-        start = int(time.time())
-        os.mkdir(f"{os.getcwd()}\\brains\\backup\\{start}") #backup brains dir
-
-        for species in range(self.n_species):
-            self.species_containers[species] = pygame.sprite.Group()
-            print(f"=== species {species} ===")
-            try:
-                brains = os.listdir(f"{os.getcwd()}\\brains\\species_{species}")
-            except:
-                os.mkdir(f"{os.getcwd()}\\brains\\species_{species}")
-                brains = []
-            print(f"\t{len(brains)} brains available")
-            if os.path.exists(f"species_{species}_initial.txt"):
-                data = eval(open(f"species_{species}_initial.txt").read())
+def flatten(inputs: list): #flattens compound list to single array
+        flat = list()
+        for obj in inputs:
+            if type(obj)==list or type(obj)==tuple:
+                flat += flatten(obj)
             else:
-                data = [30, [5, 5], [255, 0, 0], 2.5, 50, 2000, 5, 50, 90, 90, [(0, 0, 0, 0), (0, 0, 0, 0)], True, False]
-            n_create = int(CREATURE_DENSITY/self.n_species/(data[1][0]*data[1][1]*4)*WIDTH*HEIGHT)+2
-            print(f"\tcreating {n_create} of species {species}...")
-            for _ in range(n_create ):
-                creature = Creature(random.randint(0, WIDTH), random.randint(0, HEIGHT),Genome(speed=data[0], size=data[1], color=data[2], damage=data[3], health=data[4], energy=data[5], reproduction_num=data[6], vision_range=data[7], vision_span=data[8], vision_resolution=data[9], vision_color=data[10], eats_meat=data[11], eats_plant=data[12]))
-                if brains:
-                    with open(f"{os.getcwd()}\\brains\\species_{species}\\{random.choice(brains)}", "rb") as file:
-                        try:
-                            creature.brain = pickle.load(file)
-                            creature.genome = pickle.load(file)
-                        except:
-                            pass
-                else:
-                    creature.make_brain()
-                self.species_containers[species].add(creature)
-                self.all_container.add(creature)
-            os.rename(f"{os.getcwd()}\\brains\\species_{species}", f"{os.getcwd()}\\brains\\backup\\{start}\\species_{species}")
-            os.mkdir(f"{os.getcwd()}\\brains\\species_{species}")
+                flat.append(obj)
+        return flat
+
+
+
+
+@dataclass
+class Input:
+    def __init__(self, value, weight):
+        self.value = value
+        self.weight = weight
+
+
+
+
+class Neuron:
+    def __init__(self, out_range, next_layer_n_neurons):
+        self.bias = Input(1, 1)
+        self.value = 1
+        self.out_range = out_range
+        self.weights = [1 for _ in range(next_layer_n_neurons)] #the weights used for output
+
+    def random_weights(self):
+        self.bias.value = random.uniform(0, 255) #just because most values are between this, no significance
+        self.bias.weight = random.uniform(-1, 1)
+        for n in range(len(self.weights)):
+            self.weights[n] = random.uniform(-1, 1)
+
+    def process(self, *inputs):
+        self.value = 0
+        self.value += self.bias.value * self.bias.weight
+        for inp in inputs:
+            self.value += inp.value*inp.weight  #adds up all of the inputs multiplied by their weights
+        #activation function
+        if self.out_range == (-1, 1):
+            AllBetweenLimits = True
+            for inp in inputs:
+                if inp.value>1 or inp.value<-1:
+                    AllBetweenLimits=False
+                    break
+            if AllBetweenLimits:
+                self.value *= 10
+            self.value = math.sin(math.radians(self.value)) #sine limits -1 ~ 1
+        elif self.out_range == (0, 1):
+            self.value /= len(inputs)
+            self.value = 1 / (1 + math.e**-self.value) #logistic sigmoid function limits 0 ~ 1
+
+    def __add__(n1, n2):
+        neuron = Neuron(min(n1.out_range, n2.out_range), max([len(n1.weights), len(n2.weights)]))
+        for n in range(min([len(n1.weights), len(n2.weights)])):
+            neuron.weights[n] = (n1.weights[n]+n2.weights[n])/2
+        if len(n1.weights)>len(n2.weights):
+            for n in range(len(n2.weights), len(n1.weights)):
+                neuron.weights[n] = n1.weights[n]
+        elif len(n2.weights)>len(n1.weights):
+            for n in range(len(n1.weights), len(n2.weights)):
+                neuron.weights[n] = n2.weights[n]
+        neuron.bias.value = random.uniform(0.8, 1.2) * ((n1.bias.value+n2.bias.value)/2) #adds bias and differentiates
+        neuron.bias.weight = random.uniform(0.8, 1.2) * ((n1.bias.weight+n2.bias.weight)/2) #adds bias and differentiates
+        for n in range(len(neuron.weights)):                 #adds differentiation
+            neuron.weights[n] *= random.uniform(0.8, 1.2)
+        return neuron
+    
+    def to_input(self, neuron_going_to):
+        return Input(self.value, self.weights[neuron_going_to])
+
         
-        print(f"creating {int(WIDTH*HEIGHT*(PLANT_DENSITY/9))} plants...")
-        for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/9))): #creates 0.2 density of plants   /25 because avg size is 25
-                plant = Plant()
-                self.plants_container.add(plant)
-                self.all_container.add(plant)
-                
-        print("all sprites created")
+class Layer:
+    def __init__(self, n_neurons, next_layer_n_neurons, out_range):
+        self.out_range = out_range
+        self.next_layer_n_neurons = next_layer_n_neurons
+        self.neurons = [Neuron(out_range, next_layer_n_neurons) for _ in range(n_neurons)]
 
-        #first tick
-        screen.fill(self.BG)
-        self.all_container.update()
-        self.all_container.draw(screen)
-        pygame.display.flip()
+    def process(self, pre_layer):
+        for i in range(len(self.neurons)):
+            inputs = [pre_layer.neurons[j].to_input(i) for j in range(len(pre_layer.neurons))]
+            self.neurons[i].process(*inputs)
+
+    def randomise(self):
+        for neuron in self.neurons:
+            neuron.random_weights()
+
+    def __add__(l1, l2):
+        layer = Layer(max([len(l1.neurons), len(l2.neurons)]), max([l1.next_layer_n_neurons, l2.next_layer_n_neurons]), min(l1.out_range, l2.out_range))
+        for n in range(min([len(l1.neurons), len(l2.neurons)])):
+            layer.neurons[n] = l1.neurons[n]+l2.neurons[n]
+        if len(l1.neurons)>len(l2.neurons):
+            for n in range(len(l2.neurons), len(n1.neurons)):
+                layer.neurons[n] = n1.neurons[n]
+        elif len(l2.neurons)>len(l1.neurons):
+            for n in range(len(l1.neurons), len(l2.neurons)):
+                layer.neurons[n] = l2.neurons[n]
+        return layer
         
-        clock = pygame.time.Clock()
-        tick = 1
-        time_since_last_event = 0
+class NeuralNetwork:
+    def __init__(self, n_inputs, n_layers, layer_sizes, out_range):
+        """used to create an array of layers"""
+        self.out_range = out_range
+        self.n_inputs = n_inputs
+        self.layers = [Layer(n_inputs, layer_sizes[0], out_range)]
+        for n in range(0, n_layers-1):
+            self.layers.append(Layer(layer_sizes[n], layer_sizes[n+1], out_range))
+        self.layers.append(Layer(layer_sizes[-1], 0, out_range))
 
+    def randomise(self):
+        for layer in self.layers:
+            layer.randomise()
 
-        ##############
-        #  main loop #
-        ##############
-        species_count = [len(s.sprites()) for s in self.species_containers]
-        while (tick<self.NUM_TICKS or self.NUM_TICKS==0) and time_since_last_event<BORING_TICKS and species_count.count(0)<self.n_species-1:
-            if DEBUG or tick%50==0:
-                print(f"\n\n############\ntick {tick}") #prints tick
-                print(f"     plants: {len(self.plants_container.sprites())}")
-                for s in range(self.n_species):
-                    print(f"     species {s}: {species_count[s]}")
-                print("############\n\n")
-                
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    return -1
+    def new_input_size(self, n_inputs):
+        if n_inputs < self.n_inputs:
+            self.layers[0].neurons = self.layers[0].neurons[:n_inputs]
+        elif n_inputs > self.n_inputs:
+            for _ in range(self.n_inputs, n_inputs):
+                n = Neuron(len(self.layers[1].neurons))
+                n.randomise()
+                self.layers[0].neurons.append(n)
+            
+    def process(self, *inputs):
+        for i in range(len(inputs)):
+            self.layers[0].neurons[i].value = inputs[i]
+        for i in range(1, len(self.layers)):
+            self.layers[i].process(self.layers[i-1])
+        outputs = []
+        for i in range(len(self.layers[-1].neurons)):
+            outputs.append(self.layers[-1].neurons[i].value)
+        return self.output()
 
-            for sprite in self.all_container.sprites(): #loops through all creatures and processes them
-                if type(sprite)==Creature: #if it is a creature, not plant
-                    sprite.last_reproduction += 1
-                    if sprite.health <= 0: continue
-                    sprite.main()
-                    if sprite.age > GOLDEN_AGE*sprite.max_age: #if sprite brain "golden" save it
-                        for species in range(self.n_species):
-                            if self.species_containers[species] in sprite.groups():
-                                if not os.path.isfile(f"{os.getcwd()}/brains/species_{species}/{sprite.ID}.brain"):
-                                    print(f"dumping {sprite.ID}'s brain (group {species})")
-                                    with open(f"{os.getcwd()}/brains/species_{species}/{sprite.ID}.brain", "wb") as file:
-                                        pickle.dump(sprite.brain, file)
-                                        pickle.dump(sprite.genome, file)
-                    #collision detection
-                    collisions = self.get_collisions(sprite)
-                    for collision in collisions:
-                        if type(collision) == Plant: #sprite always creature so creature-plant collision
-                            if sprite.genome.eats_plant:
-                                sprite.eat(collision.size[0]*collision.size[1]*ENERGY_DENSITY)
-                                collision.eaten = True
-                        elif type(collision) == Creature: #creature-creature collision
-                            if sprite.groups() == collision.groups(): #same-species collision
-                                if sprite.can_mate() and collision.can_mate():
-                                    max_produce = (sprite.genome.reproduction_num.value+collision.genome.reproduction_num.value)/2 #max number of offspring to make
-                                    num_produce = int(random.triangular(1, max_produce, math.sqrt(max_produce)))
-                                    for _ in range(num_produce): #loops creating offspring
-                                        creature = Creature(sprite.pos[0], sprite.pos[1], sprite.genome+collision.genome)
-                                        creature.brain = Brain.combine(sprite.brain, sprite.brain, creature.genome.vision_resolution.value, creature.genome.speed.value)
-                                        for g in sprite.groups():
-                                            g.add(creature)
-                                    sprite.last_reproduction = 0
-                                    collision.last_reproduction = 0
-                                    sprite.energy -= sprite.genome.energy.value*REPRPODUCTION_ENERGY
-                                    collision.energy -= collision.genome.energy.value*REPRPODUCTION_ENERGY
-                            else: #different-species collision
-                                time_since_last_event = 0
-                                sprite.health -= collision.genome.size.value[0]*collision.genome.size.value[1]*collision.genome.damage.value
-                                collision.health -= sprite.genome.size.value[0]*sprite.genome.size.value[1]*sprite.genome.damage.value
-                                sprite.damaged = 0
-                                collision.damaged = 0
-                                if collision.health <= 0 and sprite.health > 0: #if collision dead and sprite not
-                                    if sprite.genome.eats_meat:
-                                        sprite.eat(collision.genome.size.value[0]*collision.genome.size.value[1]*ENERGY_DENSITY)
-                                elif sprite.health <= 0 and collision.health > 0: #if sprite dead and sprite not
-                                    if collision.genome.eats_meat:
-                                        collision.eat(sprite.genome.size.value[0]*sprite.genome.size.value[1]*ENERGY_DENSITY)
-                        
-                
-            screen.fill(self.BG)
-            self.all_container.update()
-            pygame.display.flip()
-            tick+=1
-            time_since_last_event+=1
-            if len(self.plants_container.sprites()) < WIDTH*HEIGHT*(PLANT_DENSITY/9):
-                for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/9)/100)+1): #creates 0.2 density of plants   *25 because avg size is 25
-                    plant = Plant()
-                    self.plants_container.add(plant)
-                    self.all_container.add(plant)
-            species_count = [len(s.sprites()) for s in self.species_containers]
-            if self.SPEED!=0: clock.tick(30*self.SPEED)
+    def output(self):
+        return [neuron.value for neuron in self.layers[-1].neurons]
+    
+    def __add__(n1, n2):
+        layer_sizes = [None for _ in range(max([len(n1.layers), len(n2.layers)]))] #creates empty list size of the number of layers
+        for layer in range(min([len(n1.layers), len(n2.layers)])): #loops through layers n1 and n2 have in common
+            layer_sizes[layer] = max([len(n1.layers[layer].neurons), len(n2.layers[layer].neurons)]) #layer size will be size of biggest layer
+        if len(n1.layers) > len(n2.layers): #if n1 has more layers than n2
+            for layer in range(len(n2.layers), len(n1.layers)):
+                layer_sizes[layer] = len(n1.layers[layer].neurons)
+        elif len(n2.layers) > len(n1.layers): #if n2 has more layers than n1
+            for layer in range(len(n1.layers), len(n2.layers)):
+                layer_sizes[layer] = len(n2.layers[layer].neurons)
+        network = NeuralNetwork(layer_sizes[0], len(layer_sizes)-1, layer_sizes[1:], min(n1.out_range, n2.out_range))
+        network.layers[0] = n1.layers[0]+n2.layers[0]
+        for layer in range(1, min([len(n1.layers), len(n2.layers)])):
+            if layer!=len(network.layers)-1:
+                network.layers[layer] = n1.layers[layer]+n2.layers[layer]
+        if len(n1.layers) > len(n2.layers):
+            for layer in range(len(n2.layers), len(n1.layers)):
+                    network.layers[layer] = n1.layers[layer]
+        elif len(n2.layers) > len(n1.layers):
+            for layer in range(len(n1.layers), len(n2.layers)):
+                network.layers[layer] = n2.layers[layer]
+        return network
+            
+class Brain:
+    "deep learning network"
+    def __init__(self, vision_resolution, max_distance):
+        self.vision_resolution = int(vision_resolution)
+        self.max_distance = max_distance
+        self.distance_neural_network = NeuralNetwork(int(vision_resolution)*5+3, 5, [128, 256, 256, 128, 1], (-1, 1))
+        self.angle_neural_network = NeuralNetwork(int(vision_resolution)*5+3, 5, [128, 256, 256, 128, 1], (-1, 1))
 
+    def randomise(self):
+        self.distance_neural_network.randomise()
+        self.angle_neural_network.randomise()
+        
+    def process(self, vision, health, energy, time_since_last_reproduction):
+        """
+        works out how far to move and how much to turn when moving
+        distance to move can be -1 to 1     multiplied by max distance
+        angle to turn    can be -1 to 1     multiplied by 180
+        """
+        inputs = flatten(vision + [health, energy, time_since_last_reproduction])
+        self.distance_neural_network.process(*inputs)
+        self.angle_neural_network.process(*inputs)
+        distance = self.max_distance * self.distance_neural_network.layers[-1].neurons[0].value
+        angle = 360 * self.angle_neural_network.layers[-1].neurons[0]
+        return distance, angle
+    
 
-
-
-
-   
-if __name__ == "__main__":
-    i = 1
-    try:
-        while True:
-            print(f"\n\n###############\n###############\n  iteration {i}\n###############\n###############\n\n\n")
-            simulation = Simulation()
-            if simulation.start()==-1:
-                pygame.quit()
-                sys.exit(0)
-            i+=1
-    except KeyboardInterrupt:
-        pygame.quit()
-        sys.exit(0)
+    def combine(b1, b2, vision_resolution, max_distance):
+        b = Brain(vision_resolution, max_distance)
+        b.distance_neural_network = b1.distance_neural_network+b2.distance_neural_network
+        b.angle_neural_network = b1.angle_neural_network+b2.angle_neural_network
+        b.distance_neural_network.new_input_size(max(b1.distance_neural_network.n_inputs, b2.distance_neural_network.n_inputs))
+        b.angle_neural_network.new_input_size(max(b1.angle_neural_network.n_inputs, b2.angle_neural_network.n_inputs))
+        return b
