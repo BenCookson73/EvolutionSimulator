@@ -1,4 +1,3 @@
-
 import pygame
 import sys, math, random, string, time, os, pickle
 from pygame.locals import (
@@ -18,7 +17,7 @@ DEBUG = False
 if DEBUG:
     f = open('debug.txt','w')
     sys.stdout = f
-    
+   
 WIDTH = 1300
 HEIGHT = 750
 screen = None
@@ -27,10 +26,12 @@ ENERGY_HEALTH_GAIN = 0.15 #amount 1 energy increases health by
 MAX_HEALTH_GAIN = 0.3 #percentage of health that can be regained in 1 tick (0~1)
 CREATURE_DENSITY = 0.05
 PLANT_DENSITY = 0.005
-REPRPODUCTION_ENERGY = 0.1 #percentage of energy used to reproduce
+REPRPODUCTION_ENERGY = 0.3 #percentage of energy used to reproduce
 
-GOLDEN_AGE = 0.7 #age out of max age to save brain
-BORING_TICKS = 500 #num ticks since last event to kill
+GOLDEN_AGE = 0.8 #age out of max age to save brain
+GOLDEN_ENERGY = 0.65 #% energy needed to be golden
+GOLDEN_HEALTH = 0.7 #% food needed to be golden
+BORING_TICKS = 800 #num ticks since last event to kill
 
 class Creature(pygame.sprite.Sprite):
     def __init__(self, x, y, genome=None, brain=None):
@@ -51,7 +52,7 @@ class Creature(pygame.sprite.Sprite):
         self.max_age = math.log(self.genome.size.value[0] * self.genome.size.value[1], 1.3) * 40
         self.last_reproduction = 0 #number of ticks since last reproduction
         self.health = self.genome.health.value #current health (starts at max)
-        
+       
         self.energy = self.genome.energy.value/10 #current energy (starts at max)
 
         self.damaged = 0 #number of ticks since last injured
@@ -76,15 +77,17 @@ class Creature(pygame.sprite.Sprite):
                         if color[j]<self.genome.vision_color.value[0][j]: color[j] = 0
                         elif color[j]>self.genome.vision_color.value[1][j]: color[j] = 255
                     vision_array[i] = [color, pixel] #adds the color and distance        return vision_array
-                
+               
+    def golden(self):
+        if self.age < self.max_age * GOLDEN_AGE: return False
+        if self.energy < self.genome.energy.value * GOLDEN_ENERGY: return False
+        if self.health < self.genome.health.value * GOLDEN_HEALTH: return False
+        return True
     
     def can_mate(self) -> bool:
-        if self.energy < self.genome.energy.value*REPRPODUCTION_ENERGY:
-            return False
-        if self.age < math.log((self.genome.size.value[0]*self.genome.size.value[1]), 1.1)**1.5:
-            return False
-        if self.last_reproduction < math.sqrt(self.genome.size.value[0]*self.genome.size.value[1])**1.5:
-            return False
+        if self.energy < self.genome.energy.value*REPRPODUCTION_ENERGY: return False
+        if self.age < math.log((self.genome.size.value[0]*self.genome.size.value[1]), 1.1)**1.5: return False
+        if self.last_reproduction < math.sqrt(self.genome.size.value[0]*self.genome.size.value[1])**1.5: return False
         return True
 
     def rotate(self, angle):
@@ -97,7 +100,7 @@ class Creature(pygame.sprite.Sprite):
             self.energy -= distance * 0.1
         else:
             distance /= 5
-            self.energy /= 2
+            self.energy -= distance/2 * 0.1
         delta_x = math.sin(self.angle)*distance
         delta_y = math.sqrt(distance**2 - delta_x**2)
         if self.angle>90 and self.angle<270:
@@ -119,7 +122,7 @@ class Creature(pygame.sprite.Sprite):
     def eat(self, value: float):
         self.energy += value #add amount of energy
         if self.energy > self.genome.energy.value: self.energy = self.genome.energy.value #if over max energy then set to cap
-        
+       
     def update(self):
         screen.blit(self.image, self.pos)
         self.age += 1
@@ -128,8 +131,8 @@ class Creature(pygame.sprite.Sprite):
         if self.health <= 0  or self.energy <= 0 or self.age >= self.max_age:
             self.kill()
         if self.energy <= self.genome.energy.value/10:
-            self.health -= self.genome.health.value/500
-        
+            self.health -= self.genome.health.value/200
+       
     def main(self):
         self.rotate(random.randint(0, 360))
         self.move(random.uniform(-self.genome.speed.value, self.genome.speed.value))
@@ -149,7 +152,7 @@ class Plant(pygame.sprite.Sprite):
         super().__init__()
         self.size = [random.randrange(2, 5), random.randrange(2, 5)]
         self.pos = [random.randrange(0, WIDTH), random.randrange(0, HEIGHT)]
-        
+       
         self.image = pygame.Surface(self.size)
         self.image.fill((0, 255, 0))
         self.rect = self.image.get_rect()
@@ -176,12 +179,54 @@ class Simulation:
         self.n_species = 3
         self.species_containers = [None for _ in range(self.n_species)]
 
+    def avg_species(self, n):
+        avg = [0, [0, 0], [0, 0, 0], 0, 0, 0, 0, 0, 0, 0, [[0, 0, 0, 0], [0, 0, 0, 0]], True, False]
+        for c in self.species_containers[n].sprites():
+            avg[0] += c.genome.speed.value
+            avg[1][0] += c.genome.size.value[0]
+            avg[1][1] += c.genome.size.value[1]
+            avg[2][0] += c.genome.color.value[0]
+            avg[2][1] += c.genome.color.value[1]
+            avg[2][2] += c.genome.color.value[2]
+            avg[3] += c.genome.damage.value
+            avg[4] += c.genome.health.value
+            avg[5] += c.genome.energy.value
+            avg[6] += c.genome.reproduction_num.value
+            avg[7] += c.genome.vision_range.value
+            avg[8] += c.genome.vision_span.value
+            avg[9] += c.genome.vision_resolution.value
+            avg[10][0][0] += c.genome.vision_color.value[0][0]
+            avg[10][0][1] += c.genome.vision_color.value[0][1]
+            avg[10][0][2] += c.genome.vision_color.value[0][2]
+            avg[10][1][0] += c.genome.vision_color.value[1][0]
+            avg[10][1][1] += c.genome.vision_color.value[1][1]
+            avg[10][1][2] += c.genome.vision_color.value[1][2]
+            avg[11] = avg[11] or c.genome.eats_meat
+            avg[12] = avg[12] or c.genome.eats_plant
+        rep = str()
+        t = len(self.species_containers[n].sprites())
+        if t==0: t=100000000000000000000000 #should always end up 0
+        rep += f"    speed : {avg[0]/t}\n"
+        rep += f"    size : {avg[1][0]/t} x {avg[1][1]/t}\n"
+        rep += f"    color : ({avg[2][0]/t},{avg[2][1]/t},{avg[2][2]/t})\n"
+        rep += f"    damage : {avg[3]/t}\n"
+        rep += f"    health : {avg[4]/t}\n"
+        rep += f"    energy : {avg[5]/t}\n"
+        rep += f"    reproduction # : {avg[6]/t}\n"
+        rep += f"    vision range: {avg[7]/t}\n"
+        rep += f"    vision span: {avg[8]/t}\n"
+        rep += f"    vision resolution: {avg[9]/t}\n"
+        rep += f"    vision color: ({avg[10][0][0]/t},{avg[10][0][1]/t},{avg[10][0][2]/t}) ~ ({avg[10][1][0]/t},{avg[10][1][1]/t},{avg[10][1][2]/t})\n"
+        rep += f"    eats meat: {avg[11]}\n"
+        rep += f"    eats plant: {avg[12]}\n"
+        return rep
+
     def get_collisions(self, sprite):
         collisions = []
         center = sprite.pos
         if type(sprite)==Creature: size = sprite.genome.size.value
         elif type(sprite)==Plant: size = sprite.size
-        
+       
         for s in self.all_container.sprites():
             if s==sprite: continue
             s_center = s.pos
@@ -193,7 +238,7 @@ class Simulation:
                 center[1] + size[1] > s_center[1]):
                 collisions.append(s)
         return collisions
-                
+               
     def start(self):
         pygame.init()
         pygame.display.set_icon(pygame.image.load("assets\\icon.png"))
@@ -203,25 +248,25 @@ class Simulation:
         start = int(time.time())
         os.mkdir(f"{os.getcwd()}\\brains\\backup\\{start}") #backup brains dir
 
-        for species in range(self.n_species):
-            self.species_containers[species] = pygame.sprite.Group()
-            print(f"=== species {species} ===")
+        for n in range(self.n_species):
+            self.species_containers[n] = pygame.sprite.Group()
+            print(f"=== species {n} ===")
             try:
-                brains = os.listdir(f"{os.getcwd()}\\brains\\species_{species}")
+                brains = os.listdir(f"{os.getcwd()}\\brains\\species_{n}")
             except:
-                os.mkdir(f"{os.getcwd()}\\brains\\species_{species}")
+                os.mkdir(f"{os.getcwd()}\\brains\\species_{n}")
                 brains = []
             print(f"\t{len(brains)} brains available")
-            if os.path.exists(f"species_{species}_initial.txt"):
-                data = eval(open(f"species_{species}_initial.txt").read())
+            if os.path.exists(f"{os.getcwd()}\\species_{n}_initial.txt"):
+                data = eval(open(f"species_{n}_initial.txt").read())
             else:
                 data = [30, [5, 5], [255, 0, 0], 2.5, 50, 2000, 5, 50, 90, 90, [(0, 0, 0, 0), (0, 0, 0, 0)], True, False]
             n_create = int(CREATURE_DENSITY/self.n_species/(data[1][0]*data[1][1]*4)*WIDTH*HEIGHT)+2
-            print(f"\tcreating {n_create} of species {species}...")
-            for i in range(n_create ):
+            print(f"\tcreating {n_create} of species {n}...")
+            for i in range(n_create):
                 creature = Creature(random.randint(0, WIDTH), random.randint(0, HEIGHT),Genome(speed=data[0], size=data[1], color=data[2], damage=data[3], health=data[4], energy=data[5], reproduction_num=data[6], vision_range=data[7], vision_span=data[8], vision_resolution=data[9], vision_color=data[10], eats_meat=data[11], eats_plant=data[12]))
                 if brains:
-                    with open(f"{os.getcwd()}\\brains\\species_{species}\\{brains[i%len(brains)]}", "rb") as file:
+                    with open(f"{os.getcwd()}\\brains\\species_{n}\\{brains[i%len(brains)]}", "rb") as file:
                         try:
                             creature.brain = pickle.load(file)
                             creature.genome = pickle.load(file)
@@ -229,17 +274,17 @@ class Simulation:
                             pass
                 else:
                     creature.make_brain()
-                self.species_containers[species].add(creature)
                 self.all_container.add(creature)
-            os.rename(f"{os.getcwd()}\\brains\\species_{species}", f"{os.getcwd()}\\brains\\backup\\{start}\\species_{species}")
-            os.mkdir(f"{os.getcwd()}\\brains\\species_{species}")
-        
+                self.species_containers[n].add(creature)
+            os.rename(f"{os.getcwd()}\\brains\\species_{n}", f"{os.getcwd()}\\brains\\backup\\{start}\\species_{n}")
+            os.mkdir(f"{os.getcwd()}\\brains\\species_{n}")
+       
         print(f"creating {int(WIDTH*HEIGHT*(PLANT_DENSITY/9))} plants...")
         for _ in range(int(WIDTH*HEIGHT*(PLANT_DENSITY/9))): #creates 0.2 density of plants   /25 because avg size is 25
                 plant = Plant()
                 self.plants_container.add(plant)
                 self.all_container.add(plant)
-                
+               
         print("all sprites created")
 
         #first tick
@@ -248,6 +293,13 @@ class Simulation:
         self.all_container.draw(screen)
         pygame.display.flip()
         
+        species_count = [len(s.sprites()) for s in self.species_containers]
+        print(f"\n\n############\ntick 0")
+        print(f"     plants: {len(self.plants_container.sprites())}")
+        for s in range(self.n_species):
+            print(f"==== species {s} ({species_count[s]} alive) ====")
+            print(self.avg_species(s))
+        print("############\n\n")
         clock = pygame.time.Clock()
         tick = 1
         time_since_last_event = 0
@@ -256,15 +308,15 @@ class Simulation:
         ##############
         #  main loop #
         ##############
-        species_count = [len(s.sprites()) for s in self.species_containers]
         while (tick<self.NUM_TICKS or self.NUM_TICKS==0) and time_since_last_event<BORING_TICKS and species_count.count(0)<self.n_species-1:
             if DEBUG or tick%50==0:
                 print(f"\n\n############\ntick {tick}") #prints tick
                 print(f"     plants: {len(self.plants_container.sprites())}")
                 for s in range(self.n_species):
-                    print(f"     species {s}: {species_count[s]}")
+                    print(f"==== species {s} ({species_count[s]} alive) ====")
+                   
                 print("############\n\n")
-                
+               
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return -1
@@ -274,7 +326,7 @@ class Simulation:
                     sprite.last_reproduction += 1
                     if sprite.health <= 0: continue
                     sprite.main()
-                    if sprite.age > GOLDEN_AGE*sprite.max_age: #if sprite brain "golden" save it
+                    if sprite.golden(): #if sprite brain "golden" save it
                         for species in range(self.n_species):
                             if self.species_containers[species] in sprite.groups():
                                 if not os.path.isfile(f"{os.getcwd()}/brains/species_{species}/{sprite.ID}.brain"):
@@ -315,8 +367,8 @@ class Simulation:
                                 elif sprite.health <= 0 and collision.health > 0: #if sprite dead and sprite not
                                     if collision.genome.eats_meat:
                                         collision.eat(sprite.genome.size.value[0]*sprite.genome.size.value[1]*ENERGY_DENSITY)
-                        
-                
+                       
+               
             screen.fill(self.BG)
             self.all_container.update()
             pygame.display.flip()

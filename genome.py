@@ -18,21 +18,29 @@ class Allele:
             return -1
         self.value=value
 
-    def combine_allele(float1: float, float2: float, mut1: float, mut2: float) -> float:
+    def combine_allele(al1, al2, mut1: float, mut2: float) -> float:
+        if type(al1)==tuple: al1 = list(al1)
+        if type(al2)==tuple: al1 = list(al1)
+        if type(al1)==list or type(al2)==list:
+            value = list()
+            for all1, all2 in zip(al1, al2):
+                value.append(Allele.combine_allele(all1, all2, mut1, mut2))
+            return value
         min_percent = 0.95 * (1 - mut1 + 1 - mut2) / 2
         max_percent = 1.05 * (1 - mut1 + 1 - mut2) / 2
-        if float1 < float2:
-            min_val = min_percent * float1
-            max_val = max_percent * float2
+        if al1 < al2:
+            min_val = min_percent * al1
+            max_val = max_percent * al2
         else:
-            min_val = min_percent * float2
-            max_val = max_percent * float1
-        mode = random.uniform(min_percent, max_percent) * (float1 + float2) / 2
+            min_val = min_percent * al2
+            max_val = max_percent * al1
+        mode = random.uniform(min_percent, max_percent) * (al1 + al2) / 2
         value = random.triangular(min_val, max_val, mode)
         if (mut1 + mut2) / 2 > random.random():
-            value = random.triangular((float1 + float2) / 2 * 0.3, (float1 + float2) / 2 * 1.1, (float1 + float2) / 2 * 0.95)
+            value = random.triangular((al1 + al2) / 2 * 0.3, (al1 + al2) / 2 * 1.1, (al1 + al2) / 2 * 0.95)
         return value
-        
+
+            
     def __mul__(allele1, allele2):
         if type(allele1.value) != type(allele2.value):
             return -1
@@ -40,19 +48,10 @@ class Allele:
             value = allele1.value or allele2.value
             if (mut1 + mut2) / 2 > random.random():
                 value = not value
-        elif type(allele1.value) == float:
+        elif type(allele1.value) == float or type(allele1.value) == list:
             value = Allele.combine_allele(allele1.value, allele2.value, allele1.mutation_value, allele2.mutation_value)
-        else:
-            value = list()
-            for al1, al2 in zip(allele1.value, allele2.value):
-                if type(al1)==list or type(al2)==list:
-                    val = list()
-                    for all1, all2 in zip(al1, al2):
-                        val.append(Allele.combine_allele(all1, all2, allele1.mutation_value, allele2.mutation_value))
-                    value.append(val)
-                else: value.append(Allele.combine_allele(al1, al2, allele1.mutation_value, allele2.mutation_value))
-            value = type(allele1.value)(value)
-    
+
+        value = type(allele1.value)(value)
         mutation_value = random.triangular(allele1.mutation_value,
                                            allele2.mutation_value,
                                            random.uniform(allele1.mutation_value,
@@ -103,6 +102,11 @@ class Genome:
         g.color = genome1.color * genome2.color
         g.damage = genome1.damage * genome2.damage
         g.health = genome1.health * genome2.health
+        g.reproduction_num = genome1.reproduction_num * genome2.reproduction_num
+        g.vision_range = genome1.vision_range  * genome2.vision_range 
+        g.vision_span = genome1.vision_span * genome2.vision_span
+        g.vision_resolution = genome1.vision_resolution * genome2.vision_resolution
+        g.vision_color = genome1.vision_color * genome2.vision_color
         g.eats_meat = genome1.eats_meat or genome2.eats_meat
         g.eats_plant = genome1.eats_plant or genome2.eats_plant
         for i in range(len(g.color.value)):
